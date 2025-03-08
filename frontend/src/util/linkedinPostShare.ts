@@ -1,34 +1,40 @@
 /* Adapted from https://github.com/melvin2016/linkedin-post-share */
 
-import axios, { AxiosError } from 'axios';
+import axios, { AxiosError } from "axios";
 
 // Types
-import type { Profile, ImageUpload } from './linkedinPostShare.d';
+import type { Profile, ImageUpload } from "./linkedinPostShare.d";
 
 export default class LinkedinPostShare {
-    private LINKEDIN_BASE_URL = 'https://api.linkedin.com';
-    private LINKEDIN_VERSION = '202411';
-    constructor(private accessToken: string) { }
+    private LINKEDIN_BASE_URL = "https://api.linkedin.com";
+    private LINKEDIN_VERSION = "202411";
+    constructor(private accessToken: string) {}
 
     private async getProfileData(): Promise<Profile | null> {
-        console.log("About to get profile data")
+        console.log("About to get profile data");
         try {
-            const profileData = await axios<Profile>(`${this.LINKEDIN_BASE_URL}/v2/userinfo`, {
-                method: 'GET',
-                headers: {
-                    'LinkedIn-Version': this.LINKEDIN_VERSION,
-                    Authorization: `Bearer ${this.accessToken}`,
-                    'X-Restli-Protocol-Version': '2.0.0',
-                },
-            });
-            console.log("Profile data", profileData.data)
+            const profileData = await axios<Profile>(
+                `${this.LINKEDIN_BASE_URL}/v2/userinfo`,
+                {
+                    method: "GET",
+                    headers: {
+                        "LinkedIn-Version": this.LINKEDIN_VERSION,
+                        Authorization: `Bearer ${this.accessToken}`,
+                        "X-Restli-Protocol-Version": "2.0.0",
+                    },
+                }
+            );
+            console.log("Profile data", profileData.data);
             return profileData.data;
         } catch (e) {
             if (e instanceof AxiosError) {
-                console.error('Cannot get profile data. Error: ', e.response?.data);
+                console.error(
+                    "Cannot get profile data. Error: ",
+                    e.response?.data
+                );
                 return null;
             }
-            console.error('Something went wrong. Error: ', e);
+            console.error("Something went wrong. Error: ", e);
             return null;
         }
     }
@@ -53,40 +59,35 @@ export default class LinkedinPostShare {
     */
 
     async getOrganizationData(vanityName: string) {
-        const url = `https://api.linkedin.com/v2/organizations?q=vanityName&vanityName=${vanityName}`
-        console.log("Getting organization data with call:", url)
+        const url = `https://api.linkedin.com/v2/organizations?q=vanityName&vanityName=${vanityName}`;
+        console.log("Getting organization data with call:", url);
 
-
-        const response = await fetch(
-            url,
-            {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${this.accessToken}`,
-                    'User-Agent': 'curl/8.7.1',
-                    'Accept': '*/*',
-                    'Connection': 'keep-alive',
-                    'Accept-Encoding': 'gzip, deflate, br'
-                }
-            }
-        );
+        const response = await fetch(url, {
+            method: "GET",
+            headers: {
+                Authorization: `Bearer ${this.accessToken}`,
+                "User-Agent": "curl/8.7.1",
+                Accept: "*/*",
+                Connection: "keep-alive",
+                "Accept-Encoding": "gzip, deflate, br",
+            },
+        });
         const result = await response.json();
-        console.log(`Organization result for ${vanityName}`, result)
-        if (!result.elements[0]) return null
+        console.log(`Organization result for ${vanityName}`, result);
+        if (!result.elements[0]) return null;
 
-
-        return result.elements[0]
+        return result.elements[0];
     }
 
     async getOrganizationURNFromData(organizationData: any) {
-        const urn = `urn:li:organization:${organizationData.id}`
-        console.log("Organization URN", urn)
+        const urn = `urn:li:organization:${organizationData.id}`;
+        console.log("Organization URN", urn);
         return urn;
     }
 
     async getOrganizationURN(vanityName: string) {
         const result = await this.getOrganizationData(vanityName);
-        return await this.getOrganizationURNFromData(result)
+        return await this.getOrganizationURNFromData(result);
     }
 
     async getPersonURN(): Promise<string | null> {
@@ -98,61 +99,72 @@ export default class LinkedinPostShare {
         return urnTemplate;
     }
 
-    private async createImageUploadRequest(personUrn: string): Promise<ImageUpload | undefined> {
+    private async createImageUploadRequest(
+        personUrn: string
+    ): Promise<ImageUpload | undefined> {
         try {
             const imageUploadRequest = await axios<ImageUpload>(
                 `${this.LINKEDIN_BASE_URL}/rest/images?action=initializeUpload`,
                 {
-                    method: 'POST',
+                    method: "POST",
                     headers: {
-                        'LinkedIn-Version': this.LINKEDIN_VERSION,
+                        "LinkedIn-Version": this.LINKEDIN_VERSION,
                         Authorization: `Bearer ${this.accessToken}`,
-                        'X-Restli-Protocol-Version': '2.0.0',
+                        "X-Restli-Protocol-Version": "2.0.0",
                     },
                     data: {
                         initializeUploadRequest: {
                             owner: personUrn,
                         },
                     },
-                },
+                }
             );
             return imageUploadRequest.data;
         } catch (e) {
             if (e instanceof AxiosError) {
-                console.error('Cannot create image upload request. Error: ', e.response?.data);
+                console.error(
+                    "Cannot create image upload request. Error: ",
+                    e.response?.data
+                );
                 return;
             }
-            console.error('Something went wrong. Error: ', e);
+            console.error("Something went wrong. Error: ", e);
         }
     }
 
-    private async uploadImage(image: Buffer, uploadUrl: string): Promise<boolean | undefined> {
+    private async uploadImage(
+        image: Buffer,
+        uploadUrl: string
+    ): Promise<boolean | undefined> {
         try {
             const imageUploadRequest = await axios(uploadUrl, {
-                method: 'PUT',
+                method: "PUT",
                 headers: {
-                    'Content-Type': 'application/octet-stream',
+                    "Content-Type": "application/octet-stream",
                     Authorization: `Bearer ${this.accessToken}`,
                 },
                 data: image,
             });
             if (imageUploadRequest.status !== 201) {
-                console.error('Image not created. Status code: ', imageUploadRequest.status);
+                console.error(
+                    "Image not created. Status code: ",
+                    imageUploadRequest.status
+                );
                 return false;
             }
 
             return true;
         } catch (e) {
             if (e instanceof AxiosError) {
-                console.error('Cannot upload image. Error: ', e.cause);
+                console.error("Cannot upload image. Error: ", e.cause);
                 return;
             }
-            console.error('Something went wrong. Error: ', e);
+            console.error("Something went wrong. Error: ", e);
         }
     }
 
     private removeLinkedinReservedCharacters(text: string): string {
-        return text.replace(/[|{}@\[\]()<>\\*_~+]/gm, '');
+        return text.replace(/[|{}@\[\]()<>\\*_~+]/gm, "");
     }
 
     async createPostWithImageForOrganization(
@@ -163,7 +175,7 @@ export default class LinkedinPostShare {
     ): Promise<{ id: string } | undefined> {
         const organizationUrn = await this.getOrganizationURN(organizationName);
         if (!organizationUrn) {
-            console.error('Cannot get organization URN');
+            console.error("Cannot get organization URN");
             return;
         }
         return this.createPostWithImage(post, image, imageAlt, organizationUrn);
@@ -175,32 +187,37 @@ export default class LinkedinPostShare {
         imageAlt?: string,
         organizationURN: string | null = null
     ): Promise<{ id: string } | undefined> {
-
         post = this.removeLinkedinReservedCharacters(post);
 
         // Extract company names from LinkedIn URLs
         // ignore any trailing punctuation after the company name
         //const companyUrlRegex = /https:\/\/www\.linkedin\.com\/company\/([^\/\s']+)[^\/\s']*$/g;
-        const companyUrlRegex = /https:\/\/www\.linkedin\.com\/company\/([a-zA-Z0-9-]+)(?![a-zA-Z0-9-])/g
+        const companyUrlRegex =
+            /https:\/\/www\.linkedin\.com\/company\/([a-zA-Z0-9-]+)(?![a-zA-Z0-9-])/g;
         const matches = [...post.matchAll(companyUrlRegex)];
-        
-        // Fetch organization data for each company
-        let allCompanyData = []
-        for (const match of matches) {
-            let companySlug = match[1]
-            let companyData = await this.getOrganizationData(companySlug)
-            if (!companyData) {
-                console.error('Cannot get company data for ', companySlug)
-                throw new Error(`Cannot get company data for ${companySlug}`)
-            }
-            allCompanyData.push(companyData)
-            const companyUrl = `https://www.linkedin.com/company/${companySlug}`;
-            const companyName = companyData.localizedName
 
-            const companyUrn = await this.getOrganizationURNFromData(companyData)
-            const companyUrlRegex = new RegExp(companyUrl, 'g');
+        // Fetch organization data for each company
+        let allCompanyData = [];
+        for (const match of matches) {
+            let companySlug = match[1];
+            let companyData = await this.getOrganizationData(companySlug);
+            if (!companyData) {
+                console.error("Cannot get company data for ", companySlug);
+                throw new Error(`Cannot get company data for ${companySlug}`);
+            }
+            allCompanyData.push(companyData);
+            const companyUrl = `https://www.linkedin.com/company/${companySlug}`;
+            const companyName = companyData.localizedName;
+
+            const companyUrn = await this.getOrganizationURNFromData(
+                companyData
+            );
+            const companyUrlRegex = new RegExp(companyUrl, "g");
             // replace the company URL with the company name
-            post = post.replace(companyUrlRegex, `@[${companyName}](${companyUrn}) `);
+            post = post.replace(
+                companyUrlRegex,
+                `@[${companyName}](${companyUrn}) `
+            );
         }
 
         /*
@@ -218,28 +235,33 @@ export default class LinkedinPostShare {
         }
         */
 
-        console.log("Post with company names", post)
+        console.log("Post with company names", post);
 
         let authorURN;
         if (!organizationURN) {
             authorURN = await this.getPersonURN();
             if (!authorURN) {
-                console.error('Cannot get person URN');
+                console.error("Cannot get person URN");
                 return;
             }
         } else {
             authorURN = organizationURN;
         }
 
-        const imageUploadRequest = await this.createImageUploadRequest(authorURN);
+        const imageUploadRequest = await this.createImageUploadRequest(
+            authorURN
+        );
         if (!imageUploadRequest) {
-            console.error('Cannot create image upload request');
+            console.error("Cannot create image upload request");
             return;
         }
 
-        const uploadedImageData = await this.uploadImage(image, imageUploadRequest.value.uploadUrl);
+        const uploadedImageData = await this.uploadImage(
+            image,
+            imageUploadRequest.value.uploadUrl
+        );
         if (!uploadedImageData) {
-            console.error('Cannot upload the image');
+            console.error("Cannot upload the image");
             return;
         }
 
@@ -249,48 +271,145 @@ export default class LinkedinPostShare {
             const postData = {
                 author: authorURN,
                 commentary: post,
-                visibility: 'PUBLIC',
+                visibility: "PUBLIC",
                 distribution: {
-                    feedDistribution: 'MAIN_FEED',
+                    feedDistribution: "MAIN_FEED",
                     targetEntities: [],
                     thirdPartyDistributionChannels: [],
                 },
                 content: {
                     media: {
-                        title: imageAlt ?? 'Cover image of the post',
+                        title: imageAlt ?? "Cover image of the post",
                         id: imageId,
-                    }
+                    },
                 },
-                lifecycleState: 'PUBLISHED',
+                lifecycleState: "PUBLISHED",
                 isReshareDisabledByAuthor: false,
             };
 
-            console.log("LinkedIn Post data", postData)
+            console.log("LinkedIn Post data", postData);
 
             const data = await axios(`${this.LINKEDIN_BASE_URL}/rest/posts`, {
-                method: 'POST',
+                method: "POST",
                 headers: {
-                    'LinkedIn-Version': this.LINKEDIN_VERSION,
+                    "LinkedIn-Version": this.LINKEDIN_VERSION,
                     Authorization: `Bearer ${this.accessToken}`,
-                    'Content-Type': 'application/json',
-                    'X-Restli-Protocol-Version': '2.0.0',
+                    "Content-Type": "application/json",
+                    "X-Restli-Protocol-Version": "2.0.0",
                 },
                 data: postData,
             });
 
             if (data.status !== 201) {
-                console.error('Image not created. Status code: ', data.status);
+                console.error("Image not created. Status code: ", data.status);
                 return;
             }
             return {
-                id: data.headers['x-restli-id']
-            }
+                id: data.headers["x-restli-id"],
+            };
         } catch (e) {
             if (e instanceof AxiosError) {
-                console.error('Cannot create post. Error: ', e.response?.data);
+                console.error("Cannot create post. Error: ", e.response?.data);
                 return;
             }
-            console.error('Something went wrong. Error: ', e);
+            console.error("Something went wrong. Error: ", e);
+        }
+    }
+
+    async createPostForOrganization(
+        post: string,
+        organizationName: string
+    ): Promise<{ id: string } | undefined> {
+        const organizationUrn = await this.getOrganizationURN(organizationName);
+        if (!organizationUrn) {
+            console.error("Cannot get organization URN");
+            return;
+        }
+        return this.createPost(post, organizationUrn);
+    }
+
+    async createPost(
+        post: string,
+        organizationURN: string | null = null
+    ): Promise<{ id: string } | undefined> {
+        post = this.removeLinkedinReservedCharacters(post);
+
+        // Replace company URLs with mentions (same as in createPostWithImage)
+        const companyUrlRegex =
+            /https:\/\/www\.linkedin\.com\/company\/([a-zA-Z0-9-]+)(?![a-zA-Z0-9-])/g;
+        const matches = [...post.matchAll(companyUrlRegex)];
+        let allCompanyData = [];
+        for (const match of matches) {
+            let companySlug = match[1];
+            let companyData = await this.getOrganizationData(companySlug);
+            if (!companyData) {
+                console.error("Cannot get company data for ", companySlug);
+                throw new Error(`Cannot get company data for ${companySlug}`);
+            }
+            allCompanyData.push(companyData);
+            const companyUrl = `https://www.linkedin.com/company/${companySlug}`;
+            const companyName = companyData.localizedName;
+            const companyUrn = await this.getOrganizationURNFromData(
+                companyData
+            );
+            const companyUrlRegex = new RegExp(companyUrl, "g");
+            post = post.replace(
+                companyUrlRegex,
+                `@[${companyName}](${companyUrn}) `
+            );
+        }
+
+        let authorURN;
+        if (!organizationURN) {
+            authorURN = await this.getPersonURN();
+            if (!authorURN) {
+                console.error("Cannot get person URN");
+                return;
+            }
+        } else {
+            authorURN = organizationURN;
+        }
+
+        try {
+            const postData = {
+                author: authorURN,
+                commentary: post,
+                visibility: "PUBLIC",
+                distribution: {
+                    feedDistribution: "MAIN_FEED",
+                    targetEntities: [],
+                    thirdPartyDistributionChannels: [],
+                },
+                lifecycleState: "PUBLISHED",
+                isReshareDisabledByAuthor: false,
+            };
+
+            console.log("LinkedIn Post data", postData);
+
+            const data = await axios(`${this.LINKEDIN_BASE_URL}/rest/posts`, {
+                method: "POST",
+                headers: {
+                    "LinkedIn-Version": this.LINKEDIN_VERSION,
+                    Authorization: `Bearer ${this.accessToken}`,
+                    "Content-Type": "application/json",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                },
+                data: postData,
+            });
+
+            if (data.status !== 201) {
+                console.error("Post not created. Status code: ", data.status);
+                return;
+            }
+            return {
+                id: data.headers["x-restli-id"],
+            };
+        } catch (e) {
+            if (e instanceof AxiosError) {
+                console.error("Cannot create post. Error: ", e.response?.data);
+                return;
+            }
+            console.error("Something went wrong. Error: ", e);
         }
     }
 }

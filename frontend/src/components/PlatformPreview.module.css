@@ -1,0 +1,97 @@
+.previewContainer {
+    margin: 1rem 0;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    background: white;
+}
+
+.previewHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid #e1e8ed;
+}
+
+.platformIcon {
+    font-weight: bold;
+    font-size: 1.2rem;
+}
+
+.characterCount {
+    font-size: 0.9rem;
+    color: #536471;
+}
+
+.error {
+    color: #e0245e;
+}
+
+.previewContent {
+    padding: 1rem;
+}
+
+.previewText {
+    margin-bottom: 1rem;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.imagePreview {
+    margin: 0.5rem 0;
+    border-radius: 8px;
+    overflow: hidden;
+    background-color: #f7f9fa;
+}
+
+.linkPreview {
+    margin-top: 1rem;
+    border: 1px solid #e1e8ed;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.linkImage {
+    position: relative;
+    height: 100px;
+}
+
+.linkContent {
+    padding: 0.75rem;
+}
+
+.linkTitle {
+    font-weight: bold;
+    margin-bottom: 0.25rem;
+}
+
+.linkDescription {
+    font-size: 0.9rem;
+    color: #536471;
+    margin-bottom: 0.25rem;
+}
+
+.linkUrl {
+    font-size: 0.85rem;
+    color: #536471;
+}
+
+/* Platform-specific styles */
+.twitterPreview {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        Helvetica, Arial, sans-serif;
+}
+
+.linkedinPreview {
+    font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI",
+        Roboto, "Helvetica Neue", "Fira Sans", Ubuntu, Oxygen, "Oxygen Sans",
+        Cantarell, "Droid Sans", "Apple Color Emoji", "Segoe UI Emoji",
+        "Segoe UI Emoji", "Segoe UI Symbol", "Lucida Grande", Helvetica, Arial,
+        sans-serif;
+}
+
+.blueskyPreview {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        Helvetica, Arial, sans-serif;
+}

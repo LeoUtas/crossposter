@@ -1,8 +1,35 @@
 import NextAuth from "next-auth";
 import type { NextAuthOptions } from "next-auth";
+import type { Account, Session, User, Profile } from "next-auth";
+import type { JWT } from "next-auth/jwt";
+import type { TokenSetParameters } from "openid-client";
 import GoogleProvider from "next-auth/providers/google";
 import TwitterProvider from "next-auth/providers/twitter";
-import LinkedInProvider from 'next-auth/providers/linkedin'
+import LinkedInProvider from "next-auth/providers/linkedin";
+
+interface ExtendedAccount extends Account {
+    oauth_token?: string;
+    oauth_token_secret?: string;
+    access_token?: string;
+}
+
+interface ExtendedSession extends Session {
+    accessToken?: string;
+    user?: {
+        firstname?: string;
+        lastname?: string;
+    } & Session["user"];
+}
+
+interface ExtendedToken extends JWT {
+    accessToken?: string;
+    provider?: string;
+}
+
+interface ExtendedUser extends User {
+    firstname?: string;
+    lastname?: string;
+}
 
 export const authOptions: NextAuthOptions = {
     providers: [
@@ -13,62 +40,86 @@ export const authOptions: NextAuthOptions = {
         TwitterProvider({
             clientId: process.env.TWITTER_OAUTH_1_KEY!,
             clientSecret: process.env.TWITTER_OAUTH_1_SECRET!,
-            // clientId: process.env.TWITTER_CLIENT_ID!,
-            // clientSecret: process.env.TWITTER_CLIENT_SECRET!,
-            // version: "2.0",
-            // authorization: {
-            //     params: {
-            //         scope: "tweet.read tweet.write users.read offline.access"
-            //     }
-            // }
         }),
         LinkedInProvider({
             clientId: process.env.LINKEDIN_CLIENT_ID!,
             clientSecret: process.env.LINKEDIN_CLIENT_SECRET!,
-            authorization: { params: { scope: 'profile email openid w_member_social w_organization_social' } },
-            issuer: 'https://www.linkedin.com/oauth',
-            jwks_endpoint: "https://www.linkedin.com/oauth/openid/jwks",
-            async profile(profile) {
-                return {
-                    id: profile.sub,
-                    name: profile.name,
-                    firstname: profile.given_name,
-                    lastname: profile.family_name,
-                    email: profile.email
-                }
+            authorization: {
+                params: {
+                    scope: "profile email openid w_member_social w_organization_social",
+                },
             },
-        })
-    ],
-    callbacks: {
-        async signIn({ user, account }) {
-            if (account && account.provider !== 'google') {
-                let token = account.access_token
-                let secret = null
-                if (account.provider === 'twitter') {
-                    token = account.oauth_token
-                    secret = account.oauth_token_secret
+            issuer: "https://www.linkedin.com/oauth",
+            jwks_endpoint: "https://www.linkedin.com/oauth/openid/jwks",
+            async profile(profile, tokens) {
+                if (!profile?.sub) {
+                    throw new Error("No sub found in LinkedIn profile");
                 }
 
-                // This value will be available in the client's signIn() callback
-                return `/api/user/save-token?provider=${account.provider}&token=${token}&secret=${secret}`
+                const userProfile = {
+                    id: profile.sub,
+                    name: (profile.name ?? `${profile.given_name || ''} ${profile.family_name || ''}`.trim()) || 'LinkedIn User',
+                    email: profile.email,
+                    image: profile.picture,
+                    firstname: profile.given_name,
+                    lastname: profile.family_name,
+                } as ExtendedUser;
+
+                return userProfile;
+            },
+        }),
+    ],
+    callbacks: {
+        async signIn({ user, account }: { user: ExtendedUser, account: ExtendedAccount | null }): Promise<boolean | string> {
+            if (account && account.provider !== "google") {
+                let token: string | undefined = account.access_token;
+                let secret: string | undefined = undefined;
+
+                if (account.provider === "twitter") {
+                    token = account.oauth_token;
+                    secret = account.oauth_token_secret;
+                }
+
+                if (!token) {
+                    console.error(
+                        `No token found for ${account.provider} login`
+                    );
+                    return false;
+                }
+
+                return `/api/user/save-token?provider=${
+                    account.provider
+                }&token=${token}${secret ? `&secret=${secret}` : ""}`;
             }
-            return true
+            return true;
         },
-        async session({ session, token }) {
-            // Add token to session so it's available via getSession
-            if (session.user?.email) {
-                session.accessToken = token.accessToken
+        async session({ session, token, user }: { session: ExtendedSession, token: ExtendedToken, user: ExtendedUser }): Promise<ExtendedSession> {
+            if (!session.user) {
+                session.user = {};
             }
-            return session
+
+            // Make sure we only set accessToken if it exists in the token
+            if (session.user.email && token.accessToken) {
+                session.accessToken = token.accessToken;
+            }
+
+            // Include firstname and lastname in session if available
+            if (user?.firstname) {
+                session.user.firstname = user.firstname;
+            }
+            if (user?.lastname) {
+                session.user.lastname = user.lastname;
+            }
+
+            return session;
         },
-        async jwt({ token, account }) {
-            // Persist the access token to the token right after signin
-            if (account?.provider === 'google') {
-                token.accessToken = account.access_token
-                token.provider = account.provider
+        async jwt({ token, account }: { token: ExtendedToken, account: ExtendedAccount | null }): Promise<ExtendedToken> {
+            if (account?.provider === "google") {
+                token.accessToken = account.access_token;
+                token.provider = account.provider;
             }
-            return token
-        }
+            return token;
+        },
     },
     secret: process.env.NEXTAUTH_SECRET,
 };

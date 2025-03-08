@@ -1,117 +1,156 @@
-import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { Anthropic, OpenAI } from "llamaindex";
-import { FunctionTool, ReActAgent, AnthropicAgent, OpenAIAgent, Settings } from "llamaindex";
+import {
+    FunctionTool,
+    ReActAgent,
+    AnthropicAgent,
+    OpenAIAgent,
+    Settings,
+} from "llamaindex";
 import { getJson } from "serpapi";
 
 const searchWeb = FunctionTool.from(
-  async ({ query }: { query: string }) => {
-    const response = await getJson({
-        engine: "google",
-        api_key: process.env.SERP_API_KEY,
-        q: query,
-        location: "San Francisco, California",
-      });
-      let filteredResponse = response.organic_results.map((result: any, index: number) => {
-        return {
-            title: result.title,
-            link: result.link,
-            snippet: result.snippet.replaceAll("·", "").replaceAll("...", "")
-        }
-      })
-      //console.log(`web search response for ${query}: `, filteredResponse);
-      return filteredResponse;
-  },
-  {
-    name: "searchWeb",
-    description: "Use this function to search the web for a query",
-    parameters: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "The query to search the web for",
-        },
-      },
-      required: ["query"],
+    async ({ query }: { query: string }) => {
+        const response = await getJson({
+            engine: "google",
+            api_key: process.env.SERP_API_KEY,
+            q: query,
+            location: "San Francisco, California",
+        });
+        let filteredResponse = response.organic_results.map(
+            (result: any, index: number) => {
+                return {
+                    title: result.title,
+                    link: result.link,
+                    snippet: result.snippet
+                        .replaceAll("·", "")
+                        .replaceAll("...", ""),
+                };
+            }
+        );
+        console.log(`web search response for ${query}: `, filteredResponse);
+        return filteredResponse;
     },
-  },
+    {
+        name: "searchWeb",
+        description: "Use this function to search the web for a query",
+        parameters: {
+            type: "object",
+            properties: {
+                query: {
+                    type: "string",
+                    description: "The query to search the web for",
+                },
+            },
+            required: ["query"],
+        },
+    }
 );
 
-const sendResponse = (controller: ReadableStreamDefaultController, message: string) => {
-    controller.enqueue(`data: ${JSON.stringify({msg: message})}\n\n`);
-}
+const sendResponse = (
+    controller: ReadableStreamDefaultController,
+    message: string
+) => {
+    controller.enqueue(`data: ${JSON.stringify({ msg: message })}\n\n`);
+};
 
 Settings.llm = new Anthropic({
     model: "claude-3-5-sonnet-20240620",
     apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-const twitterAgent = new ReActAgent({tools: [searchWeb]});
-const linkedInAgent = new ReActAgent({tools: [searchWeb]});
-const blueskyAgent = new ReActAgent({tools: [searchWeb]});
+const twitterAgent = new ReActAgent({ tools: [searchWeb] });
+const linkedInAgent = new ReActAgent({ tools: [searchWeb] });
+const blueskyAgent = new ReActAgent({ tools: [searchWeb] });
 
-const getTwitterHandles = async (controller: ReadableStreamDefaultController, extractedEntities: any) => {
+const getTwitterHandles = async (
+    controller: ReadableStreamDefaultController,
+    extractedEntities: any
+) => {
     const twitterHandles: Record<string, string | null> = {};
-    const searchPromises = Object.values(extractedEntities).map(async (entityValue: unknown) => {
-        if (typeof entityValue !== 'string') {
-            throw new Error('Entity value must be a string');
-        }
-        sendResponse(controller, "Looking up Twitter handle for " + entityValue);
+    const searchPromises = Object.values(extractedEntities).map(
+        async (entityValue: unknown) => {
+            if (typeof entityValue !== "string") {
+                throw new Error("Entity value must be a string");
+            }
+            sendResponse(
+                controller,
+                "Looking up Twitter handle for " + entityValue
+            );
 
-        let agentResponse = null;
-        try {
-            agentResponse = await twitterAgent.chat({
-                message: `
+            let agentResponse = null;
+            try {
+                agentResponse = await twitterAgent.chat({
+                    message: `
                 Your goal is to find the Twitter account of the given entity. 
                 These days Twitter is also called X, so it might be "X account" or "Twitter account". Search the web for "${entityValue} twitter account". You'll get a list of results.
                 Pick the one that is most likely to be the Twitter/X account of the given entity.
                 Return the FULL URL ONLY. If none of the results seem to be the Twitter/X account of the given entity, return "NOT FOUND" only.
-            `
-            });
+            `,
+                });
 
-            console.log("Twitter Agent response: ", (agentResponse?.message?.content[0] as { text: string })?.text || "No response");
+                console.log(
+                    "Twitter Agent response: ",
+                    (agentResponse?.message?.content[0] as { text: string })
+                        ?.text || "No response"
+                );
+            } catch (error) {
+                console.error(
+                    `Error running agent to find Twitter handle for ${entityValue}`,
+                    error
+                );
+                return [entityValue, null];
+            }
 
-        } catch (error) {
-            console.error(`Error running agent to find Twitter handle for ${entityValue}`, error);
-            return [entityValue, null];
-        }
+            if (
+                !(agentResponse?.message?.content[0] as { text: string })?.text
+            ) {
+                return [entityValue, null];
+            }
 
-        if (!(agentResponse?.message?.content[0] as { text: string })?.text) {
-            return [entityValue, null];
-        }
-
-        let response = null;
-        try {            
-            response = await Settings.llm.complete({
-                prompt: `
+            let response = null;
+            try {
+                response = await Settings.llm.complete({
+                    prompt: `
                     You're given the output of an agent running a search. It has either found a URL or not. If it found a URL, return that URL ONLY. If it didn't find a URL, return "NOT FOUND" only.
                     <agentresponse>
-                    ${(agentResponse?.message?.content[0] as { text: string }).text ?? "NOT FOUND"}
+                    ${
+                        (agentResponse?.message?.content[0] as { text: string })
+                            .text ?? "NOT FOUND"
+                    }
                     </agentresponse>
-                `
-            });
-        } catch (error) {
-            console.error("Error running LLM to clean up agent response about twitter", error);
-            return [entityValue, null];
-        }
-
-        const result = response.text;
-        console.log("Twitter search result: ", result);
-        
-        let handle = null;
-        if (result !== "NOT FOUND") {
-            if (result.includes("twitter.com/")) {
-                handle = "@" + result.split("twitter.com/")[1].split("?")[0];
-            } else if (result.includes("x.com/")) {
-                handle = "@" + result.split("x.com/")[1].split("?")[0];
+                `,
+                });
+            } catch (error) {
+                console.error(
+                    "Error running LLM to clean up agent response about twitter",
+                    error
+                );
+                return [entityValue, null];
             }
-            sendResponse(controller, `Found Twitter handle for ${entityValue}: ` + handle);
-        }
 
-        return [entityValue, handle];
-    });
+            const result = response.text;
+            console.log("Twitter search result: ", result);
+
+            let handle = null;
+            if (result !== "NOT FOUND") {
+                if (result.includes("twitter.com/")) {
+                    handle =
+                        "@" + result.split("twitter.com/")[1].split("?")[0];
+                } else if (result.includes("x.com/")) {
+                    handle = "@" + result.split("x.com/")[1].split("?")[0];
+                }
+                sendResponse(
+                    controller,
+                    `Found Twitter handle for ${entityValue}: ` + handle
+                );
+            }
+
+            return [entityValue, handle];
+        }
+    );
 
     const results = await Promise.all(searchPromises);
     for (const [entityValue, handle] of results) {
@@ -119,73 +158,98 @@ const getTwitterHandles = async (controller: ReadableStreamDefaultController, ex
     }
 
     return twitterHandles;
-}
+};
 
-const getLinkedInHandles = async (controller: ReadableStreamDefaultController, extractedEntities: any) => {
+const getLinkedInHandles = async (
+    controller: ReadableStreamDefaultController,
+    extractedEntities: any
+) => {
     const linkedInHandles: Record<string, string | null> = {};
-    const searchPromises = Object.values(extractedEntities).map(async (entityValue: unknown) => {
-        if (typeof entityValue !== 'string') {
-            throw new Error('Entity value must be a string');
-        }
-        sendResponse(controller, "Looking up LinkedIn handle for " + entityValue);
+    const searchPromises = Object.values(extractedEntities).map(
+        async (entityValue: unknown) => {
+            if (typeof entityValue !== "string") {
+                throw new Error("Entity value must be a string");
+            }
+            sendResponse(
+                controller,
+                "Looking up LinkedIn handle for " + entityValue
+            );
 
-        let agentResponse = null;
-        try {
-            agentResponse = await linkedInAgent.chat({
-                message: `
+            let agentResponse = null;
+            try {
+                agentResponse = await linkedInAgent.chat({
+                    message: `
                     Your goal is to find the LinkedIn account of the given entity. 
                     Search the web for "${entityValue} linkedin". You'll get a list of results.
                     Pick the one that is most likely to be the LinkedIn account of the given entity.
                     Return the URL of that LinkedIn account. Return the URL ONLY. If none of the results
                     seem to be the LinkedIn account of the given entity, return "NOT FOUND" only.
-                `
-            });
-        } catch (error) {
-            console.error(`Error running agent to find LinkedIn handle for ${entityValue}`, error);
-            console.error("Stack: ", (error as Error).stack);
-        }
+                `,
+                });
+            } catch (error) {
+                console.error(
+                    `Error running agent to find LinkedIn handle for ${entityValue}`,
+                    error
+                );
+                console.error("Stack: ", (error as Error).stack);
+            }
 
-        if (!(agentResponse?.message?.content[0] as { text: string })?.text) {
-            return [entityValue, null];
-        }
+            if (
+                !(agentResponse?.message?.content[0] as { text: string })?.text
+            ) {
+                return [entityValue, null];
+            }
 
-        console.log("LinkedIn Agent response: ", (agentResponse?.message?.content[0] as { text: string })?.text);
+            console.log(
+                "LinkedIn Agent response: ",
+                (agentResponse?.message?.content[0] as { text: string })?.text
+            );
 
-        let response = null;
-        try {
-            response = await Settings.llm.complete({
-                prompt: `
+            let response = null;
+            try {
+                response = await Settings.llm.complete({
+                    prompt: `
                     You're given the output of an agent running a search. It has either found a URL or not. If it found a URL, return that URL ONLY. If it didn't find a URL, return "NOT FOUND" only.
                     <agentresponse>
-                    ${(agentResponse?.message?.content[0] as { text: string })?.text ?? "NOT FOUND"}
+                    ${
+                        (agentResponse?.message?.content[0] as { text: string })
+                            ?.text ?? "NOT FOUND"
+                    }
                     </agentresponse>
-                `
-            });
-        } catch (error) {
-            console.error("Error running LLM to clean up agent response about linkedin", error);
-        }
+                `,
+                });
+            } catch (error) {
+                console.error(
+                    "Error running LLM to clean up agent response about linkedin",
+                    error
+                );
+            }
 
-        if (!response) {
-            return [entityValue, null];
-        }
+            if (!response) {
+                return [entityValue, null];
+            }
 
-        const result = response.text;
-        console.log("LinkedIn search result: ", result);
-        
-        let handle = null;
-        if (result !== "NOT FOUND") {
-            handle = result;
-            sendResponse(controller, `Found LinkedIn handle for ${entityValue}: ` + handle);
-        }
+            const result = response.text;
+            console.log("LinkedIn search result: ", result);
 
-        // FIXME: if the entity is a person, we won't be able to @-mention them
-        // (see linkedInPostShare.ts) so we return null.
-        if (handle && handle.includes("linkedin.com/in/")) {
-            handle = null;
-        }
+            let handle = null;
+            if (result !== "NOT FOUND") {
+                handle = result;
+                sendResponse(
+                    controller,
+                    `Found LinkedIn handle for ${entityValue}: ` + handle
+                );
+            }
 
-        return [entityValue, handle];
-    });
+            // FIXME: if the entity is a person, we won't be able to @-mention them
+            // (see linkedInPostShare.ts) so we return null.
+            if (handle && handle.includes("linkedin.com/in/")) {
+                handle = null;
+            }
+
+            return [entityValue, handle];
+        }
+    );
 
     const results = await Promise.all(searchPromises);
     for (const [entityValue, handle] of results) {
@@ -193,14 +257,13 @@ const getLinkedInHandles = async (controller: ReadableStreamDefaultController, e
     }
 
     return linkedInHandles;
-}
+};
 
 const translateBlueSkyURLToHandle = async (url: string) => {
-
     if (!url) return null;
 
-    let handle = null
-    
+    let handle = null;
+
     const matches = url.match(/did:plc:[a-z0-9]+/);
     if (matches) {
         const did = matches[0];
@@ -209,88 +272,109 @@ const translateBlueSkyURLToHandle = async (url: string) => {
             const response = await fetch(`https://plc.directory/${did}`);
             const data = await response.json();
             handle = data.alsoKnownAs[0];
-            if (handle.startsWith('at://')) {
+            if (handle.startsWith("at://")) {
                 handle = handle.substring(5);
             }
         } catch (error) {
-            console.error('Error translating Bluesky DID URL tohandle:', error);
+            console.error("Error translating Bluesky DID URL tohandle:", error);
             throw error;
         }
     } else {
-        console.log(`${url} doesn't look like a bluesky DID, maybe it's the actual URL?`)
+        console.log(
+            `${url} doesn't look like a bluesky DID, maybe it's the actual URL?`
+        );
         handle = url.split("/").pop()?.split("?")[0];
     }
 
     return handle;
-}
+};
 
-const getBlueskyHandles = async (controller: ReadableStreamDefaultController, extractedEntities: any) => {
+const getBlueskyHandles = async (
+    controller: ReadableStreamDefaultController,
+    extractedEntities: any
+) => {
     const blueskyHandles: Record<string, string | null> = {};
-    const searchPromises = Object.values(extractedEntities).map(async (entityValue: unknown) => {
-        if (typeof entityValue !== 'string') {
-            throw new Error('Entity value must be a string');
-        }
-        sendResponse(controller, "Looking up Bluesky handle for " + entityValue);
+    const searchPromises = Object.values(extractedEntities).map(
+        async (entityValue: unknown) => {
+            if (typeof entityValue !== "string") {
+                throw new Error("Entity value must be a string");
+            }
+            sendResponse(
+                controller,
+                "Looking up Bluesky handle for " + entityValue
+            );
 
-        const agentResponse = await blueskyAgent.chat({
-            message: `
+            const agentResponse = await blueskyAgent.chat({
+                message: `
                 Your goal is to find the Bluesky account of the given entity. 
                 Search the web for "${entityValue} bluesky". You'll get a list of results.
                 Pick the one that is most likely to be the Bluesky account of the given entity. Sometimes Bluesky accounts have ugly URLs like "did:plc:..." but if the title and description match, it might be the right one.
                 Return the URL of that Bluesky account. Return the URL ONLY. If none of the results
                 seem to be the Bluesky account of the given entity, return "NOT FOUND" only.
-            `
-        });
+            `,
+            });
 
-        if (!(agentResponse?.message?.content[0] as { text: string })?.text) {
-            return [entityValue, null];
-        }
+            if (
+                !(agentResponse?.message?.content[0] as { text: string })?.text
+            ) {
+                return [entityValue, null];
+            }
 
-        console.log("Bluesky Agent response: ", (agentResponse?.message?.content[0] as { text: string })?.text);
+            console.log(
+                "Bluesky Agent response: ",
+                (agentResponse?.message?.content[0] as { text: string })?.text
+            );
 
-        const response = await Settings.llm.complete({
-            prompt: `
+            const response = await Settings.llm.complete({
+                prompt: `
                 You're given the output of an agent running a search. It has either found a URL or not. If it found a URL, return that URL ONLY. If it didn't find a URL, return "NOT FOUND" only.
                 <agentresponse>
-                ${(agentResponse?.message?.content[0] as { text: string })?.text ?? "NOT FOUND"}
+                ${
+                    (agentResponse?.message?.content[0] as { text: string })
+                        ?.text ?? "NOT FOUND"
+                }
                 </agentresponse>
-            `
-        });
+            `,
+            });
 
-        if (!response) {
-            return [entityValue, null];
+            if (!response) {
+                return [entityValue, null];
+            }
+
+            const result = response.text;
+            console.log("Bluesky search result: ", result);
+
+            let handle = null;
+            if (result !== "NOT FOUND") {
+                handle = result;
+                sendResponse(
+                    controller,
+                    `Found BlueSky handle for ${entityValue}: ` + handle
+                );
+            }
+
+            return [entityValue, handle];
         }
-
-        const result = response.text;
-        console.log("Bluesky search result: ", result);
-        
-        let handle = null;
-        if (result !== "NOT FOUND") {
-            handle = result;
-            sendResponse(controller, `Found BlueSky handle for ${entityValue}: ` + handle);
-        }
-
-        return [entityValue, handle];
-    });
+    );
 
     const results = await Promise.all(searchPromises);
     for (const [entityValue, url] of results) {
         if (url) {
-            const handle = await translateBlueSkyURLToHandle(url)
-            blueskyHandles[entityValue as string] = `@${handle}`
+            const handle = await translateBlueSkyURLToHandle(url);
+            blueskyHandles[entityValue as string] = `@${handle}`;
         } else {
-            blueskyHandles[entityValue as string] = null
+            blueskyHandles[entityValue as string] = null;
         }
     }
 
     return blueskyHandles;
-}
+};
 
 export async function POST(request: Request) {
     const session = await getServerSession(authOptions);
-    
+
     if (!session) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     return NextResponse.json({ message: "Hello World" });
@@ -298,31 +382,38 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
     const session = await getServerSession(authOptions);
-    
+
     if (!session) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     try {
         const url = new URL(request.url);
-        const text = url.searchParams.get('text');
+        const text = url.searchParams.get("text");
 
         if (!text) {
             return NextResponse.json(
-                { error: 'Text parameter is required' },
+                { error: "Text parameter is required" },
                 { status: 400 }
             );
         }
 
-
         // Create a ReadableStream to send the response as an SSE
         const stream = new ReadableStream({
             async start(controller) {
-
                 sendResponse(controller, "Generating entities...");
 
-                const response = await Settings.llm.complete({prompt:`
+                const response = await Settings.llm.complete({
+                    prompt: `
                     Below is the text of a tweet. Extract from it a list of entities it might make sense to @-mention.
+                    Use emojis for:
+                    - Quick highlights
+                    - Key points
+                    - Sequential steps
+                    Use bullet points (•) for:
+                    - subpoints
+                    - sequential steps
+
                     <tweet>
                     ${text}
                     </tweet>
@@ -341,7 +432,8 @@ export async function GET(request: Request) {
                     Return the JSON object ONLY, no preamble or explanation.
 
                     JSON:
-                `})
+                `,
+                });
 
                 const entityExtractionResult = JSON.parse(response.text);
                 const extractedEntities = entityExtractionResult.entities;
@@ -349,20 +441,27 @@ export async function GET(request: Request) {
 
                 console.log("Extracted entities: ", extractedEntities);
 
-                sendResponse(controller, "Extracted entities, searching for handles...");
+                sendResponse(
+                    controller,
+                    "Extracted entities, searching for handles..."
+                );
 
                 const handlePromises = {
                     twitter: getTwitterHandles(controller, extractedEntities),
                     linkedin: getLinkedInHandles(controller, extractedEntities),
-                    bluesky: getBlueskyHandles(controller, extractedEntities)
+                    bluesky: getBlueskyHandles(controller, extractedEntities),
                 };
 
-                const handles = await Promise.all(Object.values(handlePromises))
-                    .then(results => {
-                        return Object.fromEntries(
-                            Object.keys(handlePromises).map((key, index) => [key, results[index]])
-                        );
-                    });
+                const handles = await Promise.all(
+                    Object.values(handlePromises)
+                ).then((results) => {
+                    return Object.fromEntries(
+                        Object.keys(handlePromises).map((key, index) => [
+                            key,
+                            results[index],
+                        ])
+                    );
+                });
 
                 sendResponse(controller, `Got all handles`);
 
@@ -370,17 +469,25 @@ export async function GET(request: Request) {
                 for (const platform in handles) {
                     console.log("Platform: ", platform);
                     console.log("Handles: ", handles[platform]);
-                    let platformDraft = draft
+                    let platformDraft = draft;
                     for (const entityLabel of Object.keys(extractedEntities)) {
                         const entityName = extractedEntities[entityLabel];
                         if (handles[platform][entityName]) {
-                            platformDraft = platformDraft.replaceAll(`@[${entityLabel}]`, handles[platform][entityName]);
+                            platformDraft = platformDraft.replaceAll(
+                                `@[${entityLabel}]`,
+                                handles[platform][entityName]
+                            );
                         } else {
-                            platformDraft = platformDraft.replaceAll(`@[${entityLabel}]`, entityName);
+                            platformDraft = platformDraft.replaceAll(
+                                `@[${entityLabel}]`,
+                                entityName
+                            );
                         }
                     }
-                    drafts[platform] = platformDraft
+                    drafts[platform] = platformDraft;
                 }
+
+                console.log("Twitter Drafts length: ", drafts.twitter.length);
 
                 // bluesky needs to be rephrased if it's over 300 characters
                 if (drafts.bluesky.length > 300) {
@@ -389,20 +496,46 @@ export async function GET(request: Request) {
                             This bluesky draft is too long. Rephrase it be at 300 characters or less.
                             As much as possible, maintain @-mentions. The post likely ends with a URL, 
                             that MUST be included.
+                            Use emojis for:
+                            - Quick highlights
+                            - Key points
+                            - Sequential steps
                             <draft>
                             ${drafts.bluesky}
                             </draft>
                             Do NOT include any preamble or explanation, just return the rephrased text.
-                        `
+                        `,
                     });
-                    drafts.bluesky = response.text
+                    drafts.bluesky = response.text;
                 }
 
-                controller.enqueue(`data: ${JSON.stringify({
-                    msg: "Workflow completed",
-                    result: drafts,
-                    handles: handles
-                })}\n\n`);
+                // twitter needs to be rephrased if it's over 250 characters
+                if (drafts.twitter.length > 250) {
+                    const response = await Settings.llm.complete({
+                        prompt: `
+                            This Twitter draft is too long. Rephrase it be strictly at 200 characters or less.
+                            As much as possible, maintain @-mentions. The post likely ends with a URL, 
+                            that MUST be included.
+                            Use emojis for:
+                    - Quick highlights
+                    - Key points
+                    - Sequential steps
+                            <draft>
+                            ${drafts.twitter}
+                            </draft>
+                            Do NOT include any preamble or explanation, just return the rephrased text.
+                        `,
+                    });
+                    drafts.twitter = response.text;
+                }
+
+                controller.enqueue(
+                    `data: ${JSON.stringify({
+                        msg: "Workflow completed",
+                        result: drafts,
+                        handles: handles,
+                    })}\n\n`
+                );
 
                 controller.close();
             },
@@ -411,16 +544,15 @@ export async function GET(request: Request) {
         // Return the stream with appropriate headers for SSE
         return new Response(stream, {
             headers: {
-                'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive',
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                Connection: "keep-alive",
             },
         });
-
     } catch (error) {
-        console.error('Error processing draft:', error);
+        console.error("Error processing draft:", error);
         return NextResponse.json(
-            { error: 'Failed to process draft' },
+            { error: "Failed to process draft" },
             { status: 500 }
         );
     }
