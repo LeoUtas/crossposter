@@ -56,6 +56,7 @@ export default function Home() {
     const [activeTab, setActiveTab] = useState("app");
     const [linkPreviews, setLinkPreviews] = useState<LinkPreviewData[]>([]);
     const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+    const [isGeneratingText, setIsGeneratingText] = useState(false);
 
     useEffect(() => {
         if (session) {
@@ -199,6 +200,34 @@ export default function Home() {
         setLinkPreviews(previews);
     };
 
+    const generateText = async () => {
+        try {
+            setIsGeneratingText(true);
+            const response = await fetch('/api/generate-text', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    prompt: "Generate a social media post" // You can customize this prompt
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to generate text');
+            }
+
+            const data = await response.json();
+            await handleTextChange(data.text);
+        } catch (error) {
+            console.error('Error generating text:', error);
+            setErrorMessage('Failed to generate text. Please try again.');
+            dialogRef.current?.showModal();
+        } finally {
+            setIsGeneratingText(false);
+        }
+    };
+
     const renderAppContent = () => {
         if (status === "loading") {
             return <div>Loading...</div>;
@@ -260,14 +289,23 @@ export default function Home() {
                     <div className="container">
                         <div className="enterText">
                             <label htmlFor="text">Enter your draft post</label>
-                            <textarea
-                                id="text"
-                                name="text"
-                                value={draftText}
-                                onChange={(e) =>
-                                    handleTextChange(e.target.value)
-                                }
-                            />
+                            <div className="flex flex-col gap-4 w-full max-w-2xl mx-auto p-4">
+                                <div className="flex gap-2">
+                                    <textarea
+                                        className="w-full p-2 border rounded"
+                                        value={draftText}
+                                        onChange={(e) => handleTextChange(e.target.value)}
+                                        placeholder="Enter your text here..."
+                                    />
+                                    <button
+                                        onClick={generateText}
+                                        disabled={isGeneratingText}
+                                        className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-blue-300"
+                                    >
+                                        {isGeneratingText ? "Generating..." : "Generate Text"}
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                         <div className="uploadMedia">
                             <label htmlFor="media">Upload media</label>
